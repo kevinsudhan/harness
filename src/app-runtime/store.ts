@@ -92,7 +92,7 @@ function newKey(col: AppColumn, rows: Row[], entity: AppEntity, prefix: string):
     return rows.reduce((m, r) => Math.max(m, Number(r[col.name]) || 0), 0) + 1;
   }
   // Readable references for text keys, the way the template numbers enquiries ARX-ENQ-0004.
-  const tag = `${prefix}-${entity.name.slice(0, 3).toUpperCase()}`;
+  const tag = `${prefix}-${entity.tag ?? entity.name.slice(0, 3).toUpperCase()}`;
   const n = rows.reduce((m, r) => {
     const x = String(r[col.name] ?? "").match(/-(\d+)$/);
     return Math.max(m, x ? Number(x[1]) : 0);

@@ -11,6 +11,7 @@ const Workflows = lazy(() => import("./pages/Workflows"));
 const Approvals = lazy(() => import("./pages/Approvals"));
 const Audit = lazy(() => import("./pages/Audit"));
 const Setup = lazy(() => import("./pages/Setup"));
+const AgentConsole = lazy(() => import("./pages/AgentConsole"));
 
 function PageFallback() {
   return <div className="text-sm text-text-muted py-10">Loading…</div>;
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="/approvals" element={<Approvals />} />
           <Route path="/audit" element={<Audit />} />
           <Route path="/setup" element={<Setup />} />
+          <Route path="/agent" element={<AgentConsole />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

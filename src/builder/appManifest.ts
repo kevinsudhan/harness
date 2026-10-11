@@ -15,6 +15,7 @@
 import type { ForkSpec, Template } from "./fork.js";
 import { toVertical } from "./fork.js";
 import type { VerticalConfig } from "../verticals/types.js";
+import type { ActionDef, EntityDef, FieldType, LifecycleDef, ModuleCategory } from "../modules/types.js";
 
 export type Role = "primary" | "calls" | "events" | "slots" | "bookings" | "partners" | "quotes" | "lines" | "other";
 
@@ -55,6 +56,17 @@ export interface AppColumn {
    * hidden from forms and lists, so a dental desk is never asked for a cargo description.
    */
   leftover?: boolean;
+
+  // Composed apps (version 2) say more about each column, from the module that owns it.
+  label?: string;
+  /** The module's own type — money, choice, phone — where `type` is how it is stored. */
+  semantic?: FieldType;
+  options?: string[];
+  required?: boolean;
+  /** Computed by the engine; never typed in. */
+  formula?: string;
+  pii?: boolean;
+  help?: string;
 }
 
 /**
@@ -99,6 +111,29 @@ export interface AppEntity {
   key: string;
   title: string;
   columns: AppColumn[];
+
+  // Composed apps (version 2): every entity may have stages of its own, not just the primary.
+  module?: string;
+  singular?: string;
+  /** The short code in its references, DEN-INV-0004. */
+  tag?: string;
+  lifecycle?: LifecycleDef;
+  /** The column the engine mirrors the lifecycle state into. */
+  stageColumn?: string;
+  noOverlap?: EntityDef["noOverlap"];
+}
+
+/** An action a composed app offers — a module's, or one the business wrote for its pipeline. */
+export type AppAction = ActionDef & { module: string; custom?: boolean };
+
+export interface AppModule {
+  id: string;
+  label: string;
+  category: ModuleCategory;
+  icon: string;
+  summary: string;
+  entities: string[];
+  settings: Record<string, string | number | boolean>;
 }
 
 export interface AppAgent {
@@ -111,9 +146,14 @@ export interface AppAgent {
 }
 
 export interface AppManifest {
-  version: 1;
+  /** 1: cloned from the freight template. 2: composed from the module catalogue (src/modules/). */
+  version: 1 | 2;
   business: VerticalConfig["business"];
+  /** The primary entity's state machine and policy. For version 2, derived from the composition. */
   vertical: VerticalConfig;
+  /** Version 2 only. */
+  modules?: AppModule[];
+  actions?: AppAction[];
   /** The lifecycle-bearing table: what the pipeline board and the twin act on. */
   primary: { entity: string; stageColumn: string | null };
   entities: AppEntity[];

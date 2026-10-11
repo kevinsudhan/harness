@@ -10,7 +10,14 @@ const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
 const S = {
-  mode: "fork",
+  // "compose" (the module catalogue) | "fork" (the freight template) | "extend".
+  mode: "compose",
+  cTab: "overview",
+  catalogue: [],
+  examples: [],
+  configText: null,
+  configMsg: null,
+  lastBuildName: null,
   status: null,
   template: null,
   run: null,
@@ -32,6 +39,7 @@ const S = {
 const RUNNING = new Set(["REQUEST_RECEIVED", "READING_TEMPLATE", "DRAFTING"]);
 
 const EXAMPLES = {
+  compose: COMPOSE_EXAMPLES,
   fork: [
     ["Dental clinic", "A dental clinic in Chennai. Patients phone in to book, reschedule or cancel appointments with a dentist; the clinic sends reminders the day before and follows up after treatment. Some treatments need a lab (crowns, dentures)."],
     ["Physiotherapy centre", "A physiotherapy centre. Patients call to book a first assessment, then a course of sessions with a therapist; missed sessions are followed up, and insurance pre-approval is needed for some courses."],
@@ -243,8 +251,11 @@ async function openRun(id) {
     renderExtend();
     return;
   }
-  setMode("fork", false);
+  setMode(S.run.mode === "compose" ? "compose" : "fork", false);
   S.tab = "overview";
+  S.cTab = "overview";
+  S.configText = null;
+  S.configMsg = null;
   S.file = null;
   render();
   if (RUNNING.has(S.run.state)) startPolling();
@@ -365,6 +376,7 @@ function watchBackdrop() {
 /** Paints the active view. The only render entry point anything else should call. */
 function render() {
   if (S.view === "simple") renderSimple();
+  else if (S.mode === "compose") { if (S.build) renderBuild(); else renderCompose(); }
   else if (S.mode === "fork") { if (S.build) renderBuild(); else renderRun(); }
   else renderExtend();
 }
@@ -420,6 +432,7 @@ function renderSimple() {
 
   if (!run) { el.hidden = true; return; }
   el.hidden = false;
+  if (run.mode === "compose") return renderSimpleCompose();
 
   const phase = simplePhase(run);
   const failed = run.state === "FAILED" || run.state === "ANALYSIS_FAILED";
@@ -952,7 +965,7 @@ async function loadBuilds() {
   el.innerHTML = builds
     .map((b) => `<li><button type="button" data-build="${esc(b.name)}" class="${S.build && S.build.name === b.name ? "active" : ""}">
       <span class="r-title">${esc(b.business || b.label)}</span>
-      <span class="r-meta"><span class="badge ok">${esc(b.id)}</span>${S.apps[b.name] && S.apps[b.name].running ? `<span class="badge accent">live${S.apps[b.name].port ? ` :${S.apps[b.name].port}` : ""}</span>` : ""}<span>${b.states ?? "?"} states</span><span>${new Date(b.builtAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span></span>
+      <span class="r-meta"><span class="badge ok">${esc(b.id)}</span>${b.kind === "composed" ? '<span class="badge info">modules</span>' : ""}${S.apps[b.name] && S.apps[b.name].running ? `<span class="badge accent">live${S.apps[b.name].port ? ` :${S.apps[b.name].port}` : ""}</span>` : ""}<span>${b.states ?? "?"} states</span><span>${new Date(b.builtAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span></span>
     </button></li>`)
     .join("");
 }
@@ -968,9 +981,12 @@ async function openBuild(name) {
   S.run = null;
   S.extendRun = null;
   S.buildTab = "lifecycle";
+  S.cTab = "overview";
+  S.configText = null;
+  S.configMsg = null;
   S.file = null;
   if (location.hash !== `#build/${name}`) history.replaceState(null, "", `#build/${name}`);
-  setMode("fork", false);
+  setMode(S.build.kind === "composed" ? "compose" : "fork", false);
   renderBuild();
   loadBuilds();
   $("#run").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1004,6 +1020,7 @@ function agentBlock(f) {
 }
 
 function renderBuild() {
+  if (S.build && S.build.kind === "composed") return renderComposedBuild();
   const b = S.build;
   const el = $("#run");
   el.hidden = false;
@@ -1328,16 +1345,21 @@ function renderExtend() {
 function setMode(mode, render = true) {
   S.mode = mode;
   $$(".segmented button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.mode === mode)));
-  $("#composer-label").textContent = mode === "fork" ? "Describe the business you want built" : "Describe the change to the logistics system";
-  $("#request").placeholder = mode === "fork" ? EXAMPLES.fork[0][1] : EXAMPLES.extend[0][1];
-  $("#go").textContent = mode === "fork" ? "Draft blueprint" : "Plan the change";
-  $("#composer-hint").textContent = mode === "fork"
-    ? "One quick draft, then everything else is generated instantly."
-    : "One quick read of the request, then the change is worked out against the live system.";
+  $("#composer-label").textContent = mode === "extend" ? "Describe the change to the logistics system" : mode === "fork" ? "Describe the business — it is cloned from the freight template" : "Describe the business you want built";
+  $("#request").placeholder = EXAMPLES[mode][0][1];
+  $("#go").textContent = mode === "compose" ? "Compose business" : mode === "fork" ? "Draft blueprint" : "Plan the change";
+  $("#composer-hint").textContent = mode === "compose"
+    ? "One model call picks and adapts modules; every rule is then checked in code."
+    : mode === "fork"
+      ? "One quick draft, then everything else is generated instantly."
+      : "One quick read of the request, then the change is worked out against the live system.";
+  renderCatalogueCard();
+  renderExampleChips();
   $("#examples").innerHTML = EXAMPLES[mode].map(([label], i) => `<button type="button" class="chip" data-ex="${i}">${esc(label)}</button>`).join("");
   $$("#examples [data-ex]").forEach((b) => b.addEventListener("click", () => { $("#request").value = EXAMPLES[S.mode][Number(b.dataset.ex)][1]; $("#request").focus(); }));
   if (!render) return;
-  if (mode === "fork") renderRun();
+  if (mode === "compose") { if (S.build && S.build.kind === "composed") renderComposedBuild(); else renderCompose(); }
+  else if (mode === "fork") renderRun();
   else renderExtend();
 }
 
@@ -1375,22 +1397,22 @@ function boot() {
   $$(".view-switch button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
 
   const ask = $("#ask"), askIn = $("#ask-input");
-  ask.addEventListener("submit", (e) => { e.preventDefault(); startFork(askIn.value, true); });
+  ask.addEventListener("submit", (e) => { e.preventDefault(); startCompose(askIn.value, true); });
   // Enter sends, Shift+Enter is a newline — the convention people already have
   // for this shape of box. Ctrl/Cmd+Enter also works, matching the other composer.
   askIn.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); startFork(askIn.value, true); }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); startCompose(askIn.value, true); }
   });
   // Grow with the text rather than scrolling a three-line window.
   const grow = () => { askIn.style.height = "auto"; askIn.style.height = Math.min(askIn.scrollHeight, 260) + "px"; };
   askIn.addEventListener("input", grow);
-  $("#ask-examples").innerHTML = EXAMPLES.fork.map(([label], i) => `<button type="button" class="chip" data-ex="${i}">${esc(label)}</button>`).join("");
+  $("#ask-examples").innerHTML = EXAMPLES.compose.map(([label], i) => `<button type="button" class="chip" data-ex="${i}">${esc(label)}</button>`).join("");
   $$("#ask-examples [data-ex]").forEach((b) => b.addEventListener("click", () => {
-    askIn.value = EXAMPLES.fork[Number(b.dataset.ex)][1]; grow(); askIn.focus();
+    askIn.value = EXAMPLES.compose[Number(b.dataset.ex)][1]; grow(); askIn.focus();
   }));
   $("#home").addEventListener("click", (e) => { e.preventDefault(); setView("simple"); });
 
-  $("#go").addEventListener("click", () => (S.mode === "fork" ? startFork() : startExtend()));
+  $("#go").addEventListener("click", () => (S.mode === "compose" ? startCompose() : S.mode === "fork" ? startFork() : startExtend()));
   $("#request").addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") $("#go").click();
   });
@@ -1410,8 +1432,9 @@ function boot() {
   const deep = location.hash.match(/^#build\/([a-z0-9_-]+)$/);
   if (deep) openBuild(deep[1]);
 
-  setMode("fork", false);
+  setMode("compose", false);
   setView(S.view, false);
+  loadComposeExtras();
   loadStatus();
   loadTemplate();
   loadRuns();

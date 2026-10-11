@@ -14,9 +14,23 @@ export interface Column {
   pk?: boolean;
   links?: string;
   leftover?: boolean;
+  // Composed apps say what a column is, not just how it is stored.
+  label?: string;
+  semantic?: string;
+  options?: string[];
+  required?: boolean;
+  formula?: string;
+  pii?: boolean;
+  help?: string;
 }
 
 export type Role = "primary" | "calls" | "events" | "slots" | "bookings" | "partners" | "quotes" | "lines" | "other";
+
+export interface EntityLifecycle {
+  order: string[];
+  initial: string;
+  states: Record<string, { label: string; requirements?: string[]; next: string[] }>;
+}
 
 export interface Entity {
   name: string;
@@ -27,6 +41,49 @@ export interface Entity {
   key: string;
   title: string;
   columns: Column[];
+  // Composed apps: any entity may have stages of its own.
+  module?: string;
+  singular?: string;
+  lifecycle?: EntityLifecycle;
+  stageColumn?: string;
+}
+
+/** An input an action asks for. */
+export interface Param {
+  name: string;
+  type: string;
+  label?: string;
+  help?: string;
+  required?: boolean;
+  options?: string[];
+  ref?: string;
+}
+
+export type Policy =
+  | { mode: "auto" }
+  | { mode: "approve"; approver: string; why: string }
+  | { mode: "threshold"; measure: "amount" | "discountPct"; limit: number; trigger: "atOrAbove" | "above"; approver: string };
+
+export interface AppModule {
+  id: string;
+  label: string;
+  category: string;
+  icon: string;
+  summary: string;
+  entities: string[];
+  settings: Record<string, string | number | boolean>;
+}
+
+export interface AppAction {
+  name: string;
+  label: string;
+  entity: string;
+  module: string;
+  summary: string;
+  effects: string[];
+  policy: Policy;
+  params?: Param[];
+  custom?: boolean;
 }
 
 export interface StateDef {
@@ -49,8 +106,12 @@ export interface Vertical {
 }
 
 export interface Manifest {
+  /** 1: cloned from the freight template. 2: composed from the module catalogue. */
+  version: 1 | 2;
   business: Vertical["business"];
   vertical: Vertical;
+  modules?: AppModule[];
+  actions?: AppAction[];
   primary: { entity: string; stageColumn: string | null };
   entities: Entity[];
   agents: Array<{ name: string; from: string; role: string; greeting: string; collects: string[]; promptFile: string }>;
@@ -95,23 +156,44 @@ export interface Approval {
   recordId: string;
   action: string;
   context: { amount?: number; discountPct?: number; note?: string };
+  params?: Record<string, unknown>;
   why: string;
   approver: string;
   status: "pending" | "approved" | "rejected";
   decidedBy?: string;
   decidedAt?: string;
+  // Composed apps name what is waiting, so the queue reads without opening each one.
+  entityLabel?: string;
+  actionLabel?: string;
+  title?: string;
+}
+
+export interface ActionOption {
+  action: string;
+  verdict: Verdict;
+  // Composed apps describe each action and what it asks for.
+  label?: string;
+  summary?: string;
+  effects?: string[];
+  params?: Param[];
+  policy?: Policy;
+  custom?: boolean;
 }
 
 export interface Lifecycle {
-  state: string;
-  label: string;
+  /** Null for a composed record with actions but no stages — a contact, a stock item. */
+  state: string | null;
+  label: string | null;
   readiness: number;
   requirements: Record<string, boolean>;
   unmet: string[];
   next: Array<{ state: string; label: string }>;
-  actions: Array<{ action: string; verdict: Verdict }>;
+  actions: ActionOption[];
   history: Array<{ from: string | null; to: string; at: string; why: string }>;
   pendingApprovals: Approval[];
+  entity?: string;
+  /** Composed apps: only the business's own pipeline is moved by hand. */
+  movable?: boolean;
 }
 
 export interface RecordView {
@@ -128,6 +210,39 @@ export interface Overview {
   actionsToday: number;
   recent: LedgerEntry[];
   newest: Row[];
+}
+
+// ---------------------------------------------------------------- the agent (composed apps)
+
+export interface AgentStep {
+  tool: string;
+  args: Record<string, unknown>;
+  decision: { action: "allow" | "hold" | "block"; reason?: string; delegationId?: string; matchedPolicy?: string };
+  outcome: "performed" | "held" | "refused" | "read" | "created" | "error" | "blocked" | "held_by_guard" | "unknown_tool" | "unseen_id";
+  result?: unknown;
+}
+
+export interface AgentRunView {
+  at?: string;
+  task: string;
+  guard: string;
+  enforcing: boolean;
+  turns: Array<{ thought: string; steps: AgentStep[] }>;
+  answer: string;
+  stoppedBecause: "done" | "max_turns" | "model_error";
+  usage: { input: number; output: number };
+  models: string[];
+}
+
+export interface AgentStatus {
+  armoriq: boolean;
+  model: string;
+  agentId: string;
+  mcpId: string;
+  allowed: number;
+  blocked: Array<{ tool: string; why: string }>;
+  busy: boolean;
+  runs: Array<{ file: string; at: string; task: string; guard: string; enforcing: boolean; answer: string; stoppedBecause: string; calls: number; blocked: number; held: number; refused: number }>;
 }
 
 export class ApiError extends Error {}
@@ -168,6 +283,21 @@ export const api = {
   advance: (id: string, to: string, why: string, force: boolean) => send<Lifecycle>("POST", `/api/records/${encodeURIComponent(id)}/advance`, { to, why, force }),
   act: (id: string, action: string, ctx: { amount?: string; discountPct?: string; note?: string }) =>
     send<{ outcome: "performed" | "held" | "refused"; entry: LedgerEntry; approval?: Approval; options: Lifecycle }>("POST", `/api/records/${encodeURIComponent(id)}/act`, { action, ...ctx }),
+  // Composed apps: any record with stages or actions, not just the primary.
+  actOn: (entity: string, id: string, action: string, params: Record<string, unknown>) =>
+    send<{ outcome: "performed" | "held" | "refused"; entry: LedgerEntry; approval?: Approval; created?: { entity: string; id: string }; options: Lifecycle }>(
+      "POST",
+      `/api/e/${encodeURIComponent(entity)}/${encodeURIComponent(id)}/act`,
+      { action, params },
+    ),
+  advanceOn: (entity: string, id: string, to: string, why: string, force: boolean) =>
+    send<Lifecycle>("POST", `/api/e/${encodeURIComponent(entity)}/${encodeURIComponent(id)}/advance`, { to, why, force }),
+  requirementOn: (entity: string, id: string, requirement: string, met: boolean) =>
+    send<Lifecycle>("POST", `/api/e/${encodeURIComponent(entity)}/${encodeURIComponent(id)}/requirements`, { requirement, met }),
+  agent: () => call<AgentStatus>("/api/agent"),
+  agentRun: (file: string) => call<AgentRunView>(`/api/agent/runs/${encodeURIComponent(file)}`),
+  runAgent: (task: string, context: string, unguarded: boolean) =>
+    send<{ file: string; run: AgentRunView }>("POST", "/api/agent/run", { task, context, unguarded }),
   approvals: () => call<Approval[]>("/api/approvals"),
   decide: (id: string, approve: boolean) => send<Approval>("POST", `/api/approvals/${encodeURIComponent(id)}`, { approve }),
   ledger: (limit = 300) => call<LedgerEntry[]>(`/api/ledger?limit=${limit}`),

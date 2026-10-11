@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { CompanyBrand, PoweredByAraxys } from "../components/Brand";
 import { useApp } from "../lib/app";
 import { api, type Role } from "../lib/api";
+import { composedGroups } from "./composedNav";
 import {
   LayoutDashboard,
   KanbanSquare,
@@ -58,7 +59,7 @@ export default function Sidebar() {
     api.approvals().then((a) => setPending(a.filter((x) => x.status === "pending").length)).catch(() => {});
   }, [version]);
 
-  const groups: Array<{ title?: string; items: NavItem[] }> = [
+  const groups: Array<{ title?: string; items: NavItem[] }> = m.version === 2 ? composedGroups(m, primary.name, pending) : [
     { items: [{ to: "/", label: "Overview", icon: LayoutDashboard }] },
     {
       title: "Pipeline",

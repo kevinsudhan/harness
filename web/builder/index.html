@@ -109,7 +109,18 @@
         <ul class="runs" id="builds"><li class="muted small">Loading…</li></ul>
       </section>
 
-      <section class="card">
+      <section class="card" id="catalogue-card" hidden>
+        <div class="card-head">
+          <div>
+            <div class="eyebrow">Module catalogue</div>
+            <h2>What businesses are made of</h2>
+          </div>
+          <span class="badge ok" id="cat-count"></span>
+        </div>
+        <div id="cat-body" class="tpl-body"><div class="skeleton"></div><div class="skeleton short"></div></div>
+      </section>
+
+      <section class="card" id="tpl-card">
         <div class="card-head">
           <div>
             <div class="eyebrow">Template</div>
@@ -132,7 +143,8 @@
 
     <main class="main">
       <div class="segmented" role="tablist" aria-label="Mode">
-        <button role="tab" aria-selected="true" data-mode="fork" id="mode-fork">New business</button>
+        <button role="tab" aria-selected="true" data-mode="compose" id="mode-compose">New business</button>
+        <button role="tab" aria-selected="false" data-mode="fork" id="mode-fork">From the freight template</button>
         <button role="tab" aria-selected="false" data-mode="extend" id="mode-extend">Change the logistics system</button>
       </div>
 
@@ -140,6 +152,7 @@
         <label class="composer-label" for="request" id="composer-label">Describe the business you want built</label>
         <textarea id="request" rows="4" placeholder="A dental clinic in Chennai. Patients phone in to book, reschedule or cancel appointments; the clinic sends reminders the day before and follows up after treatment."></textarea>
         <div class="chips" id="examples"></div>
+        <div class="chips" id="compose-examples" hidden></div>
         <div class="composer-foot">
           <label class="check"><input type="checkbox" id="force" /> Don't stop for questions — carry them as assumptions</label>
           <div class="grow"></div>
@@ -153,6 +166,7 @@
   </div>
 
   <script src="config.js"></script>
+  <script src="compose.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

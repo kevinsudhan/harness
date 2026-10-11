@@ -1242,3 +1242,31 @@ body.is-simple .popover {
 }
 .carried:hover { background: color-mix(in srgb, var(--warn-bg) 70%, var(--warn) 10%); }
 .carried .arrow { opacity: .7; }
+
+/* ------------------------------------------------------------ composed businesses */
+/* The module catalogue's cards, the config editor and its answer line (compose.js). */
+.mod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+.mod {
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+}
+.mod-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
+.config-editor,
+#c-answers {
+  width: 100%; resize: vertical;
+  padding: 11px 12px;
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  font: 400 12px/1.55 var(--mono);
+}
+.config-editor { min-height: 420px; tab-size: 2; }
+#c-answers { font-family: var(--sans); font-size: 13px; min-height: 72px; }
+.config-editor:focus, #c-answers:focus { outline: none; border-color: var(--line-3); }
+.config-editor[readonly] { opacity: .85; }
+.ok-text { color: var(--ok); }
+.bad-text { color: var(--bad); }
+#compose-examples { margin-top: 8px; align-items: center; }

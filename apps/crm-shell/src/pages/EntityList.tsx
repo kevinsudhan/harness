@@ -9,7 +9,7 @@ import Modal from "../components/Modal";
 import RecordForm from "../components/RecordForm";
 import { api, type Row } from "../lib/api";
 import { useApp } from "../lib/app";
-import { show, singular, stateLabel, subtitle } from "../lib/format";
+import { entitySingular, show, stagesOf, stateLabelFor, subtitle } from "../lib/format";
 
 /**
  * Any table as the CRM's request list: filter chips on top, one RowCard per row. On the
@@ -38,6 +38,9 @@ export default function EntityList() {
 
   if (!e) return <EmptyState label={`No table called ${name}.`} />;
   const isPrimary = e.name === primary.name;
+  // Any table with stages filters by them — in a composed app an invoice list filters by draft, issued, paid.
+  const stages = stagesOf(e, v, isPrimary);
+  const composed = info.manifest.version === 2;
   const titleCol = e.columns.find((c) => c.name === e.title);
   const set = (k: string, val: string) => {
     const next = new URLSearchParams(params);
@@ -53,20 +56,20 @@ export default function EntityList() {
         title={e.label}
         subtitle={e.purpose}
         action={
-          e.role !== "events" && e.role !== "calls" ? (
+          composed || (e.role !== "events" && e.role !== "calls") ? (
             <button
               onClick={() => setCreating(true)}
               className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-brand text-white text-[13px] font-medium px-3.5 py-2 shadow-card hover:bg-brand-dark transition-colors"
             >
-              <Plus size={14} className="flex-none" /> New {singular(e.label).toLowerCase()}
+              <Plus size={14} className="flex-none" /> New {entitySingular(e).toLowerCase()}
             </button>
           ) : undefined
         }
       />
 
       <div className="flex flex-wrap items-center gap-1.5 mb-4 mt-1">
-        {isPrimary &&
-          ["", ...v.lifecycle.order].map((s) => (
+        {stages &&
+          ["", ...stages].map((s) => (
             <button
               key={s || "all"}
               onClick={() => set("stage", s)}
@@ -74,7 +77,7 @@ export default function EntityList() {
                 stage === s ? "bg-surface-2 border-border-strong text-text-primary font-medium" : "border-border text-text-secondary hover:bg-surface-2"
               }`}
             >
-              {s ? stateLabel(v, s) : "All stages"}
+              {s ? stateLabelFor(e, v, s) : "All stages"}
             </button>
           ))}
         <form
@@ -101,10 +104,10 @@ export default function EntityList() {
             <p className="text-[13px] text-text-primary font-medium truncate">{show(titleCol, r[e.title], v)}</p>
             <p className="text-xs text-text-secondary truncate">{subtitle(e, r, v)}</p>
           </div>
-          {isPrimary && (
+          {stages && (
             <>
-              <span className="text-xs text-text-muted w-16 text-right">{Number(r._readiness ?? 0)}% ready</span>
-              <StatusPill tone={toneForState(r._state as string, v.lifecycle.order)}>{stateLabel(v, r._state as string)}</StatusPill>
+              {isPrimary && <span className="text-xs text-text-muted w-16 text-right">{Number(r._readiness ?? 0)}% ready</span>}
+              <StatusPill tone={toneForState(r._state as string, stages)}>{stateLabelFor(e, v, r._state as string)}</StatusPill>
             </>
           )}
         </RowCard>
@@ -112,14 +115,14 @@ export default function EntityList() {
 
       {creating && (
         <Modal
-          title={`New ${singular(e.label).toLowerCase()}`}
-          subtitle={isPrimary ? `Starts in “${stateLabel(v, v.lifecycle.initial)}”.` : e.purpose}
+          title={`New ${entitySingular(e).toLowerCase()}`}
+          subtitle={stages ? `Starts as “${stateLabelFor(e, v, e.lifecycle?.initial ?? v.lifecycle.initial)}”.` : e.purpose}
           onClose={() => setCreating(false)}
           wide
         >
           <RecordForm
             entity={e}
-            submitLabel={`Create ${singular(e.label).toLowerCase()}`}
+            submitLabel={`Create ${entitySingular(e).toLowerCase()}`}
             onSaved={(row) => {
               setCreating(false);
               navigate(`/e/${e.name}/${encodeURIComponent(String(row[e.key]))}`);

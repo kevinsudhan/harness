@@ -31,6 +31,8 @@ export interface LedgerEntry {
   from?: string;
   to?: string;
   verdict?: Verdict;
+  /** What was typed in when the action was taken (composed apps). */
+  params?: Record<string, unknown>;
   summary: string;
 }
 
@@ -42,6 +44,8 @@ export interface Approval {
   recordId: string;
   action: string;
   context: { amount?: number; discountPct?: number; note?: string };
+  /** The action's inputs, held with it so approving performs exactly what was asked (composed apps). */
+  params?: Record<string, unknown>;
   why: string;
   approver: string;
   status: "pending" | "approved" | "rejected";

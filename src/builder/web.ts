@@ -31,6 +31,11 @@ import { accessEnv, accessFrom, guard, lanLinks } from "./access.js";
 import { deploy, readRecord, servicesFromEnv, setActive, undeploy } from "./deploy.js";
 import { APP_ROUTES } from "./deployContent.js";
 import { AppError, createApp } from "../app-runtime/app.js";
+import {
+  startCompose, clarifyCompose, composeFromConfig, editCompose, decideCompose, buildCompose, getComposeRun, listComposeRuns,
+  composeView, summarise, catalogueView, examples, exampleConfig, ComposeStateError, type ComposeRun,
+} from "./composeRun.js";
+import { compose } from "../modules/compose.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 loadEnv(root);
@@ -78,7 +83,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 const wrap = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response) => {
   fn(req, res).catch((e: unknown) => {
-    const status = e instanceof ForkStateError || e instanceof StateError ? 409 : 500;
+    const status = e instanceof ForkStateError || e instanceof StateError || e instanceof ComposeStateError ? 409 : 500;
     const message = e instanceof Error ? e.message : String(e);
     if (status === 500) console.error(`[error] ${req.method} ${req.path} — ${message}`);
     if (!res.headersSent) res.status(status).json({ error: message });
@@ -199,6 +204,71 @@ app.post("/api/fork/:id/build", wrap(async (req, res) => {
   res.json(view(buildFork(param(req, "id"), root)));
 }));
 
+// --------------------------------------------------------------------- compose runs
+/*
+ * A new business composed from the module catalogue (src/modules/) — the successor to
+ * fork mode. Same polling shape as a fork; on top of it, the composition's config can be
+ * edited from the page and is composed again at once, in code, at zero tokens.
+ */
+const composeOpts = (force = false) => ({ cacheDir: join(root, "builds", ".cache"), force });
+
+app.get("/api/catalogue", (_req, res) => res.json(catalogueView()));
+app.get("/api/compose/examples", (_req, res) => res.json(examples(root)));
+
+app.post("/api/compose", wrap(async (req, res) => {
+  const request = String(req.body?.request ?? "").trim();
+  if (request.length < 10) return res.status(400).json({ error: "describe the business in at least a sentence" });
+  if (request.length > 4000) return res.status(400).json({ error: "keep the description under 4000 characters" });
+  await new Promise<void>((resolve) => {
+    startCompose(request, { ...composeOpts(Boolean(req.body?.force)), onStart: (run) => { res.status(202).json(composeView(run)); resolve(); } })
+      .catch((e) => {
+        const message = e instanceof Error ? e.message : String(e);
+        console.error(`[compose] ${message}`);
+        if (!res.headersSent) res.status(500).json({ error: message });
+        resolve();
+      });
+  });
+}));
+
+/** Start from a shipped example — no model, composed at once. */
+app.post("/api/compose/example", wrap(async (req, res) => {
+  const name = String(req.body?.name ?? "");
+  const ex = examples(root).find((x) => x.name === name);
+  if (!ex) return res.status(404).json({ error: `no example ${name}` });
+  res.json(composeView(composeFromConfig(exampleConfig(root, name), `Example: ${ex.business} (${ex.label})`)));
+}));
+
+/** A config from the page — a built business opened as a new draft. Composed at once, no model. */
+app.post("/api/compose/from-config", wrap(async (req, res) => {
+  const config = req.body?.config;
+  if (!config || typeof config !== "object") return res.status(400).json({ error: "send the config as a JSON object" });
+  const label = String(req.body?.label ?? "Edited config").trim().slice(0, 120) || "Edited config";
+  res.json(composeView(composeFromConfig(config, label)));
+}));
+
+app.post("/api/compose/:id/config", wrap(async (req, res) => {
+  const config = req.body?.config;
+  if (!config || typeof config !== "object") return res.status(400).json({ error: "send the config as a JSON object" });
+  res.json(composeView(editCompose(param(req, "id"), config)));
+}));
+
+app.post("/api/compose/:id/clarify", wrap(async (req, res) => {
+  const answers = String(req.body?.answers ?? "");
+  await new Promise<void>((resolve, reject) => {
+    clarifyCompose(param(req, "id"), answers, { ...composeOpts(req.body?.force === true), onStart: (run) => { res.status(202).json(composeView(run)); resolve(); } }).catch(reject);
+  });
+}));
+
+app.post("/api/compose/:id/decide", wrap(async (req, res) => {
+  const by = String(req.body?.by ?? "").trim();
+  if (!by) return res.status(400).json({ error: "say who is deciding — approval is recorded with a name" });
+  res.json(composeView(decideCompose(param(req, "id"), req.body?.approve === true, by)));
+}));
+
+app.post("/api/compose/:id/build", wrap(async (req, res) => {
+  res.json(composeView(buildCompose(param(req, "id"), root)));
+}));
+
 // ---------------------------------------------------------------------- extend runs
 
 /** The original pipeline: a change to the logistics system itself, planned against it. */
@@ -218,12 +288,17 @@ app.post("/api/extend/:id/decide", wrap(async (req, res) => {
 
 // ------------------------------------------------------------------------------ runs
 
+const composeSummary = (r: ComposeRun) => ({ runId: r.runId, mode: r.mode, request: r.request, state: r.state, startedAt: r.history[0].at, label: r.composition?.app?.label ?? null });
+
 app.get("/api/runs", (_req, res) => {
-  res.json(listForkRuns().slice(0, 30).map(summary));
+  const all = [...listForkRuns().map(summary), ...listComposeRuns().map(composeSummary)].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  res.json(all.slice(0, 30));
 });
 
 app.get("/api/runs/:id", (req, res) => {
   const id = param(req, "id");
+  const composed = getComposeRun(id);
+  if (composed) return res.json(composeView(composed));
   const fork = getForkRun(id);
   if (fork) return res.json(view(fork));
   const ext = getExtendRun(id);
@@ -253,16 +328,37 @@ function builtAt(dir: string): string {
   return statSync(dir).mtime.toISOString();
 }
 
+/**
+ * What a build wrote, for the page to show — and only that. A build folder also holds what
+ * its running app keeps beside it: tokens (.app-secret, .mcp-secret), its data, its agent
+ * runs, its log. None of it is the build, and the tokens must never leave the machine: the
+ * builder can be opened to a network (--lan) or hosted (--public).
+ */
+const NOT_THE_BUILD = (name: string, isDir: boolean) =>
+  name.startsWith(".") || (isDir && (name === "data" || name === "agent-runs")) || (!isDir && (name === "runtime.json" || name.endsWith(".log")));
+
 function walk(dir: string, base = ""): string[] {
-  return readdirSync(join(dir, base), { withFileTypes: true }).flatMap((e) =>
-    e.isDirectory() ? walk(dir, join(base, e.name)) : [join(base, e.name).replace(/\\/g, "/")],
-  );
+  return readdirSync(join(dir, base), { withFileTypes: true })
+    .filter((e) => !NOT_THE_BUILD(e.name, e.isDirectory()))
+    .flatMap((e) => (e.isDirectory() ? walk(dir, join(base, e.name)) : [join(base, e.name).replace(/\\/g, "/")]));
 }
 
 const KIND: Array<[RegExp, string]> = [
-  [/^vertical\.(ts|json)$/, "config"], [/\.sql$/, "sql"], [/^agents\//, "agent"],
-  [/^n8n\//, "workflow"], [/^memory\.json$/, "memory"], [/\.md$/, "doc"],
+  [/^vertical\.(ts|json)$/, "config"], [/^config\.json$/, "config"], [/^app\.json$/, "config"], [/\.sql$/, "sql"], [/^agents\//, "agent"],
+  [/^n8n\//, "workflow"], [/^armoriq\//, "policy"], [/^memory\.json$/, "memory"], [/\.md$/, "doc"],
 ];
+
+/** A composed build (app.json version 2) — its config composed again, for the page's summary. */
+function composedBuild(dir: string): { app: { vertical: { id: string; label: string }; business: { name: string }; primary: { entity: string }; entities: Array<{ name: string; lifecycle?: { order: string[] } }> }; config: unknown } | null {
+  try {
+    const app = JSON.parse(readFileSync(join(dir, "app.json"), "utf-8"));
+    if (app.version !== 2) return null;
+    const config = existsSync(join(dir, "config.json")) ? JSON.parse(readFileSync(join(dir, "config.json"), "utf-8")) : null;
+    return { app, config };
+  } catch {
+    return null;
+  }
+}
 
 app.get("/api/builds", (_req, res) => {
   if (!existsSync(BUILDS)) return res.json([]);
@@ -270,10 +366,16 @@ app.get("/api/builds", (_req, res) => {
     .filter((e) => e.isDirectory() && BUILD_NAME.test(e.name))
     .map((e) => {
       const dir = join(BUILDS, e.name);
+      const c = composedBuild(dir);
+      if (c) {
+        const board = c.app.entities.find((x) => x.name === c.app.primary.entity);
+        return { name: e.name, kind: "composed", id: c.app.vertical.id, label: c.app.vertical.label, business: c.app.business.name, states: board?.lifecycle?.order.length ?? null, builtAt: builtAt(dir) };
+      }
       let vertical: { id?: string; label?: string; business?: { name?: string }; lifecycle?: { order?: string[] } } = {};
       try { vertical = JSON.parse(readFileSync(join(dir, "vertical.json"), "utf-8")); } catch { /* unreadable build */ }
       return {
         name: e.name,
+        kind: "template",
         id: vertical.id ?? e.name,
         label: vertical.label ?? e.name,
         business: vertical.business?.name ?? null,
@@ -291,7 +393,7 @@ app.get("/api/builds/:name", (req, res) => {
   if (!BUILD_NAME.test(name)) return res.status(400).json({ error: "not a build name" });
   const dir = join(BUILDS, name);
   if (!existsSync(dir)) return res.status(404).json({ error: `no build ${name}` });
-  const order = ["vertical.ts", "vertical.json", "schema.sql"];
+  const order = ["config.json", "vertical.ts", "vertical.json", "BUILD.md", "app.json", "schema.sql"];
   const files = walk(dir)
     .sort((a, b) => {
       const ia = order.indexOf(a), ib = order.indexOf(b);
@@ -307,7 +409,13 @@ app.get("/api/builds/:name", (req, res) => {
     }));
   let vertical: unknown = null;
   try { vertical = JSON.parse(readFileSync(join(dir, "vertical.json"), "utf-8")); } catch { /* shown as missing */ }
-  res.json({ name, buildDir: `builds/${name}`, builtAt: builtAt(dir), vertical, files });
+  const c = composedBuild(dir);
+  if (c) {
+    // Composed again from its own config: the summary is the same one the run showed before approval.
+    const again = c.config ? compose(c.config) : null;
+    return res.json({ name, kind: "composed", buildDir: `builds/${name}`, builtAt: builtAt(dir), config: c.config, summary: again?.app ? summarise(again.app) : null, problems: again?.problems ?? [], files });
+  }
+  res.json({ name, kind: "template", buildDir: `builds/${name}`, builtAt: builtAt(dir), vertical, files });
 });
 
 // ------------------------------------------------------------------------------ apps

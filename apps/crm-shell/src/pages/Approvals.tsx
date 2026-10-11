@@ -7,14 +7,14 @@ import StatusPill from "../components/StatusPill";
 import EmptyState from "../components/EmptyState";
 import { api, type Approval } from "../lib/api";
 import { useApp } from "../lib/app";
-import { ago, humanize } from "../lib/format";
+import { ago, humanize, money } from "../lib/format";
 
 /**
  * Actions the policy gate held for a person. Approving performs the action and records
  * who approved; the one who asked cannot approve their own request.
  */
 export default function Approvals() {
-  const { primary, version, touch, user } = useApp();
+  const { info, primary, version, touch, user } = useApp();
   const [items, setItems] = useState<Approval[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,11 +50,11 @@ export default function Approvals() {
           <ShieldAlert size={15} className="text-text-warning shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-[13px] text-text-primary font-medium">
-              {humanize(a.action)} on{" "}
-              <Link to={`/e/${primary.name}/${encodeURIComponent(a.recordId)}`} className="font-mono text-text-accent hover:underline">
+              {a.actionLabel ?? humanize(a.action)} on{" "}
+              <Link to={`/e/${a.entity || primary.name}/${encodeURIComponent(a.recordId)}`} className="font-mono text-text-accent hover:underline">
                 {a.recordId}
               </Link>
-              {a.context.amount ? ` · ${a.context.amount.toLocaleString()}` : ""}
+              {a.title && a.title !== a.recordId ? ` · ${a.title}` : ""}{a.context.amount ? ` · ${money(info.manifest.vertical, a.context.amount)}` : ""}{a.context.discountPct ? ` · ${a.context.discountPct}% off` : ""}
             </p>
             <p className="text-xs text-text-secondary truncate">
               {a.why} · asked by {a.requestedBy} {ago(a.at)}
@@ -86,7 +86,7 @@ export default function Approvals() {
             <RowCard key={a.id}>
               <span className="text-xs text-text-muted w-24">{ago(a.decidedAt ?? a.at)}</span>
               <span className="flex-1 text-[13px] text-text-primary">
-                {humanize(a.action)} on <span className="font-mono">{a.recordId}</span>
+                {a.actionLabel ?? humanize(a.action)} on <span className="font-mono">{a.recordId}</span>{a.title && a.title !== a.recordId ? ` · ${a.title}` : ""}
               </span>
               <span className="text-xs text-text-secondary">by {a.decidedBy}</span>
               <StatusPill tone={a.status === "approved" ? "success" : "danger"}>{a.status}</StatusPill>

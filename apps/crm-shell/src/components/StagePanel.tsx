@@ -16,7 +16,7 @@ import { useApp } from "../lib/app";
  * Moving on with requirements unmet is possible, deliberately and visibly: it needs a
  * reason, and the ledger records what was skipped and who skipped it.
  */
-export default function StagePanel({ id, lifecycle, onChanged }: { id: string; lifecycle: Lifecycle; onChanged: (l: Lifecycle) => void }) {
+export default function StagePanel({ entity, id, lifecycle, onChanged }: { entity?: string; id: string; lifecycle: Lifecycle; onChanged: (l: Lifecycle) => void }) {
   const { touch } = useApp();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,12 +42,12 @@ export default function StagePanel({ id, lifecycle, onChanged }: { id: string; l
   }
 
   async function toggle(r: string, met: boolean) {
-    const l = await run(`req:${r}`, () => api.requirement(id, r, met));
+    const l = await run(`req:${r}`, () => (entity ? api.requirementOn(entity, id, r, met) : api.requirement(id, r, met)));
     if (l) onChanged(l);
   }
 
   async function move(to: string, force: boolean) {
-    const l = await run(`to:${to}`, () => api.advance(id, to, force ? why.trim() : "", force));
+    const l = await run(`to:${to}`, () => (entity ? api.advanceOn(entity, id, to, force ? why.trim() : "", force) : api.advance(id, to, force ? why.trim() : "", force)));
     if (l) {
       setForcing(null);
       setWhy("");

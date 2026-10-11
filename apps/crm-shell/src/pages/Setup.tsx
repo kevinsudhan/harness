@@ -3,12 +3,14 @@ import PageHeader from "../components/PageHeader";
 import StatusPill from "../components/StatusPill";
 import { useApp } from "../lib/app";
 import { humanize } from "../lib/format";
+import ComposedSetup from "./ComposedSetup";
 
 /** How this business is configured: lifecycle, policy, tables, memory — read from app.json. */
 export default function Setup() {
   const { info } = useApp();
   const m = info.manifest;
   const v = m.vertical;
+  if (m.version === 2) return <ComposedSetup />;
   return (
     <div>
       <PageHeader title="Business setup" subtitle={`${m.business.name} · ${v.label} · ${m.business.currency} · ${m.business.timezone}`} />

@@ -107,7 +107,7 @@ export default function Overview() {
       <p className="text-sm font-medium text-text-primary mb-2">Recent activity</p>
       {data.recent.length === 0 && <p className="text-[13px] text-text-muted mb-4">Nothing has happened yet.</p>}
       {data.recent.map((r) => (
-        <RowCard key={r.id} onClick={r.recordId && r.entity === primary.name ? () => navigate(`/e/${primary.name}/${encodeURIComponent(r.recordId!)}`) : undefined}>
+        <RowCard key={r.id} onClick={r.recordId && (r.entity === primary.name || (m.version === 2 && m.entities.some((x) => x.name === r.entity))) ? () => navigate(`/e/${r.entity}/${encodeURIComponent(r.recordId!)}`) : undefined}>
           <span className="flex-1 min-w-0 text-[13px] text-text-primary">
             {r.recordId && (
               <span className="font-mono text-[11px] text-text-secondary bg-surface-2 rounded px-1.5 py-[1px] mr-2 align-middle">
