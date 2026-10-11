@@ -81,8 +81,14 @@ interface Gateway {
  *
  * Every free model on the gateway reports mayTrainOnYourPrompts: true. What the builder
  * sends is the template's schema and the requester's sentence — never customer rows.
+ *
+ * Re-measured 11 Oct 2026 on a real composition (an ~8k-token catalogue prompt, a ~1.5k
+ * token JSON answer): nemotron-3-ultra returned a config that composed with no problems
+ * on the first call, in 20s. By then deepseek, glm and qwen had lost their free tier; they
+ * stay listed and viaGateway skips them until the gateway lists them as free again.
  */
 const KILO_LADDER = [
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
   "deepseek/deepseek-v4-flash-0731:free",
   "z-ai/glm-5.2:free",
   "nvidia/nemotron-3-super-120b-a12b:free",
@@ -182,12 +188,34 @@ export async function availableModels(): Promise<Array<{ id: string; free: boole
   }
 }
 
+/**
+ * Which models Kilo lists as free right now, re-read every ten minutes.
+ *
+ * A model's free tier ends without notice: three of the four ladder rungs measured on 19
+ * Sep had lost it by 11 Oct, and the gateway serves them anyway — billed. So on Kilo a
+ * rung the gateway does not currently list as free is skipped, not tried. When the list
+ * cannot be read the ladder runs as written; a missing list is not evidence of a price.
+ */
+let freeCache: { at: number; ids: Set<string> } | null = null;
+async function freeNow(): Promise<Set<string> | null> {
+  if (freeCache && Date.now() - freeCache.at < 10 * 60_000) return freeCache.ids;
+  const models = await availableModels();
+  if (!models.length) return null;
+  freeCache = { at: Date.now(), ids: new Set(models.filter((m) => m.free).map((m) => m.id)) };
+  return freeCache.ids;
+}
+
 async function viaGateway(req: CompletionRequest): Promise<CompletionResult> {
   const g = gateway();
   const skipped: string[] = [];
   let lastError = "";
+  const free = g.name === "kilo" ? await freeNow() : null;
 
   for (const model of g.ladder) {
+    if (free && !free.has(model)) {
+      skipped.push(`${model} (not free now)`);
+      continue;
+    }
     inFlight = { model, backend: g.name, since: new Date().toISOString() };
     let r: Response;
     try {
