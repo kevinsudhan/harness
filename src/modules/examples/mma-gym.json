@@ -1,0 +1,74 @@
+{
+  "id": "mma_gym",
+  "label": "MMA gym",
+  "business": { "name": "Iron Fist MMA", "currency": "INR", "currencySymbol": "₹", "locale": "en-IN", "timezone": "Asia/Kolkata" },
+  "modules": [
+    {
+      "id": "contacts",
+      "label": "Members",
+      "entities": {
+        "contact": {
+          "label": "Members",
+          "singular": "Member",
+          "drop": ["account_id", "address"],
+          "options": { "contact_type": ["member", "lead", "guardian", "other"], "source": ["walk_in", "instagram", "referral", "google", "event", "other"] },
+          "add": [
+            { "name": "belt_rank", "type": "choice", "options": ["white", "blue", "purple", "brown", "black"] },
+            { "name": "emergency_contact", "type": "text", "pii": true },
+            { "name": "medical_notes", "type": "longtext", "pii": true, "help": "injuries and conditions a coach must know" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "enquiries",
+      "label": "Leads",
+      "entities": {
+        "enquiry": {
+          "label": "Leads",
+          "singular": "Lead",
+          "drop": ["listing_id"],
+          "states": { "qualified": "Trial booked", "converted": "Joined" },
+          "options": { "channel": ["walk_in", "phone", "instagram", "whatsapp", "website", "referral"] }
+        }
+      }
+    },
+    {
+      "id": "memberships",
+      "entities": { "membership": { "states": { "trial": "Trial week" } } },
+      "actions": {
+        "cancel_membership": { "policy": { "mode": "approve", "approver": "desk", "why": "the head coach speaks to every member who wants to leave" } },
+        "pause_membership": { "label": "Freeze" }
+      },
+      "settings": { "renewal_reminder_days": 5 }
+    },
+    {
+      "id": "capacity",
+      "label": "Classes",
+      "entities": {
+        "session": { "label": "Classes", "singular": "Class", "relabel": { "resource_id": "Coach" } },
+        "reservation": { "label": "Class bookings", "singular": "Class booking", "relabel": { "seats": "Spots" } }
+      }
+    },
+    {
+      "id": "appointments",
+      "label": "Personal training",
+      "entities": {
+        "resource": { "label": "Coaches", "singular": "Coach", "options": { "kind": ["person", "room"] } },
+        "appointment": { "label": "PT sessions", "singular": "PT session", "drop": ["asset_id", "work_item_id"] }
+      },
+      "settings": { "default_duration_minutes": 60 }
+    },
+    { "id": "invoicing", "settings": { "payment_terms_days": 3 } },
+    { "id": "payments" },
+    { "id": "staff", "label": "Coaches & staff" },
+    {
+      "id": "messaging",
+      "actions": { "schedule_campaign": { "label": "Schedule blast" } }
+    },
+    { "id": "feedback" }
+  ],
+  "primary": "membership",
+  "vocabulary": ["member", "trial", "class", "coach", "belt", "sparring", "mma", "bjj", "muay thai"],
+  "openQuestions": []
+}

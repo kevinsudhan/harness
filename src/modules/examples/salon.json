@@ -1,0 +1,27 @@
+{
+  "id": "salon",
+  "label": "Hair and beauty salon",
+  "business": { "name": "Mirror Salon", "currency": "INR", "currencySymbol": "₹", "locale": "en-IN", "timezone": "Asia/Kolkata" },
+  "modules": [
+    { "id": "contacts", "label": "Clients", "entities": { "contact": { "label": "Clients", "singular": "Client", "drop": ["account_id", "address", "contact_type"], "add": [{ "name": "hair_notes", "type": "longtext", "help": "colour formulas, preferences" }] } } },
+    {
+      "id": "appointments",
+      "label": "Bookings",
+      "entities": {
+        "resource": { "label": "Stylists & chairs", "singular": "Stylist / chair", "options": { "kind": ["person", "chair", "room"] } },
+        "appointment": { "label": "Bookings", "singular": "Booking", "drop": ["work_item_id", "asset_id", "location"], "states": { "checked_in": "In the chair" } }
+      }
+    },
+    { "id": "catalogue", "label": "Services & products", "entities": { "catalogue_item": { "options": { "kind": ["service", "product", "package"] } } } },
+    { "id": "memberships", "label": "Packages", "entities": { "plan": { "label": "Packages", "singular": "Package" }, "membership": { "label": "Package holders", "singular": "Package holder" } } },
+    { "id": "inventory", "label": "Products" },
+    { "id": "invoicing", "label": "Bills", "entities": { "invoice": { "label": "Bills", "singular": "Bill" } }, "settings": { "payment_terms_days": 0 } },
+    { "id": "payments" },
+    { "id": "staff", "label": "Stylists & staff" },
+    { "id": "messaging" },
+    { "id": "feedback", "label": "Reviews", "actions": { "respond_to_feedback": { "policy": { "mode": "auto" } } } }
+  ],
+  "primary": "appointment",
+  "vocabulary": ["haircut", "colour", "stylist", "facial", "booking", "package"],
+  "openQuestions": []
+}

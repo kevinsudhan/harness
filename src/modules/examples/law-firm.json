@@ -1,0 +1,67 @@
+{
+  "id": "law_firm",
+  "label": "Law firm",
+  "business": { "name": "Raghavan & Associates", "currency": "INR", "currencySymbol": "₹", "locale": "en-IN", "timezone": "Asia/Kolkata" },
+  "modules": [
+    { "id": "contacts", "label": "Clients", "entities": { "contact": { "label": "Clients", "singular": "Client", "drop": ["date_of_birth"] } } },
+    { "id": "accounts", "label": "Companies", "entities": { "account": { "label": "Companies", "singular": "Company" } } },
+    { "id": "enquiries", "label": "Intake", "entities": { "enquiry": { "label": "Intake requests", "singular": "Intake request", "drop": ["listing_id"] } } },
+    {
+      "id": "pipeline",
+      "label": "Matters",
+      "entities": {
+        "work_item": {
+          "label": "Matters",
+          "singular": "Matter",
+          "relabel": { "title": "Matter", "owner": "Lead counsel", "contact_id": "Client", "account_id": "Company" },
+          "drop": ["asset_id", "listing_id"],
+          "add": [
+            { "name": "practice_area", "type": "choice", "options": ["litigation", "corporate", "property", "family", "employment", "ip"] },
+            { "name": "court", "type": "text" },
+            { "name": "opposing_party", "type": "text" }
+          ]
+        }
+      },
+      "lifecycle": {
+        "order": ["intake", "conflict_check", "engagement", "active", "closing", "closed", "declined"],
+        "initial": "intake",
+        "states": {
+          "intake": { "label": "Intake", "requirements": ["client identified", "matter described"], "next": ["conflict_check", "declined"] },
+          "conflict_check": { "label": "Conflict check", "requirements": ["no conflict found"], "next": ["engagement", "declined"] },
+          "engagement": { "label": "Engagement", "requirements": ["engagement letter signed", "retainer received"], "next": ["active", "declined"] },
+          "active": { "label": "Active", "next": ["closing"] },
+          "closing": { "label": "Closing", "requirements": ["final bill issued", "file returned to client"], "next": ["closed"] },
+          "closed": { "label": "Closed", "next": [] },
+          "declined": { "label": "Declined", "next": [] }
+        }
+      },
+      "customActions": [
+        { "name": "run_conflict_check", "label": "Run conflict check", "summary": "Check the matter against every current and past client.", "effects": ["record"], "policy": { "mode": "auto" }, "when": ["intake"], "to": "conflict_check" },
+        { "name": "accept_matter", "label": "Accept matter", "summary": "Accept the matter once conflicts are clear.", "effects": ["record"], "policy": { "mode": "approve", "approver": "compliance", "why": "taking on a matter is a partner's decision" }, "when": ["conflict_check"], "to": "engagement" },
+        { "name": "open_matter", "label": "Open matter", "summary": "Start work once engaged and retained.", "effects": ["record"], "policy": { "mode": "auto" }, "when": ["engagement"], "to": "active" },
+        { "name": "file_with_court", "label": "File with court", "summary": "File a document with the court on the client's behalf.", "effects": ["outbound", "sensitive"], "policy": { "mode": "approve", "approver": "compliance", "why": "a filing is made in the client's name and cannot be withdrawn quietly" }, "when": ["active"], "params": [{ "name": "filing", "type": "text", "required": true }] },
+        { "name": "send_settlement_offer", "label": "Send settlement offer", "summary": "Put a settlement offer to the other side.", "effects": ["outbound", "money"], "policy": { "mode": "threshold", "measure": "amount", "limit": 500000, "trigger": "atOrAbove", "approver": "compliance" }, "when": ["active"] },
+        { "name": "begin_closing", "label": "Begin closing", "summary": "Wind the matter up.", "effects": ["record"], "policy": { "mode": "auto" }, "when": ["active"], "to": "closing" },
+        { "name": "close_matter", "label": "Close matter", "summary": "Close the file.", "effects": ["record"], "policy": { "mode": "auto" }, "when": ["closing"], "to": "closed" },
+        { "name": "decline_matter", "label": "Decline", "summary": "Decline the matter, with the reason.", "effects": ["outbound"], "policy": { "mode": "auto" }, "when": ["intake", "conflict_check", "engagement"], "to": "declined", "params": [{ "name": "reason", "type": "text", "required": true }] }
+      ]
+    },
+    {
+      "id": "agreements",
+      "label": "Engagement letters",
+      "entities": { "agreement": { "label": "Engagement letters", "singular": "Engagement letter", "drop": ["listing_id"], "options": { "kind": ["engagement_letter", "retainer", "nda", "other"] } } }
+    },
+    { "id": "documents", "entities": { "document": { "options": { "doc_type": ["pleading", "evidence", "contract", "correspondence", "id_proof", "court_order", "other"] } } } },
+    { "id": "timesheets", "label": "Time", "entities": { "time_entry": { "relabel": { "worker": "Fee earner" } } } },
+    { "id": "invoicing", "settings": { "payment_terms_days": 30 } },
+    { "id": "payments" },
+    { "id": "commitments", "label": "Deadlines", "entities": { "commitment": { "label": "Deadlines & court dates", "singular": "Deadline" } }, "settings": { "warn_before_minutes": 4320 } },
+    { "id": "tasks" },
+    { "id": "staff", "label": "Fee earners & staff" }
+  ],
+  "primary": "work_item",
+  "vocabulary": ["matter", "client", "court", "hearing", "filing", "counsel", "retainer", "conflict check"],
+  "openQuestions": [
+    { "question": "The ₹5,00,000 limit on settlement offers was assumed — confirm the figure partners want to see.", "blocks": "behaviour" }
+  ]
+}

@@ -1,0 +1,131 @@
+import { defineModule, AUTO, approve, amountAtOrAbove } from "../types.js";
+
+/**
+ * Invoices. The important property is that an invoice settles itself: payments are rows in
+ * the payments module, `amount_paid` is their sum, and the invoice moves to part paid or
+ * paid on its own when the money arrives. Nobody marks an invoice paid by hand, which is
+ * exactly the step where a desk marks the wrong one.
+ */
+export const invoicing = defineModule({
+  id: "invoicing",
+  label: "Invoices",
+  category: "finance",
+  icon: "Receipt",
+  summary: "Invoices with priced lines and tax that track their own balance — issued over an approval threshold, chased when overdue, voided or written off only with finance.",
+  usedBy: ["every business that bills after the work"],
+  requires: ["contacts"],
+  entities: [
+    {
+      name: "invoice",
+      label: "Invoices",
+      singular: "Invoice",
+      purpose: "a bill to a customer for work or goods",
+      title: "subject",
+      fields: [
+        { name: "subject", type: "text", required: true, core: true, help: "what it is for, in one line" },
+        { name: "contact_id", type: "ref", ref: "contact", label: "Customer", required: true, core: true },
+        { name: "account_id", type: "ref", ref: "account", label: "Organisation" },
+        { name: "work_item_id", type: "ref", ref: "work_item", label: "For work" },
+        { name: "quote_id", type: "ref", ref: "quote", label: "From quote" },
+        { name: "issue_date", type: "date" },
+        { name: "due_date", type: "date" },
+        { name: "subtotal", type: "money", formula: "sum(invoice_line.amount)", core: true },
+        { name: "discount_pct", type: "percent", label: "Discount %" },
+        { name: "discount_amount", type: "money", formula: "round(subtotal * discount_pct / 100, 2)" },
+        { name: "tax_amount", type: "money", formula: "round(sum(invoice_line.tax_amount) * (1 - discount_pct / 100), 2)" },
+        { name: "total", type: "money", formula: "subtotal - discount_amount + tax_amount", core: true },
+        { name: "amount_paid", type: "money", formula: "sum(payment.amount, state = 'received')", core: true },
+        { name: "balance_due", type: "money", formula: "total - amount_paid", core: true },
+        { name: "void_reason", type: "text" },
+        { name: "notes", type: "longtext" },
+      ],
+      lifecycle: {
+        order: ["draft", "issued", "part_paid", "overdue", "paid", "void", "written_off"],
+        initial: "draft",
+        states: {
+          draft: { label: "Draft", next: ["issued", "void"] },
+          issued: { label: "Issued", next: ["part_paid", "paid", "overdue", "void"] },
+          part_paid: { label: "Part paid", next: ["paid", "overdue", "written_off"] },
+          overdue: { label: "Overdue", next: ["part_paid", "paid", "void", "written_off"] },
+          paid: { label: "Paid", next: [] },
+          void: { label: "Void", next: [] },
+          written_off: { label: "Written off", next: [] },
+        },
+        // Order matters: the engine applies the first that holds, then looks again.
+        auto: [
+          { from: ["issued", "part_paid", "overdue"], to: "paid", if: "total > 0 and balance_due <= 0" },
+          { from: ["issued"], to: "part_paid", if: "amount_paid > 0 and balance_due > 0" },
+          { from: ["issued", "part_paid"], to: "overdue", if: "due_date < today() and balance_due > 0" },
+        ],
+      },
+    },
+    {
+      name: "invoice_line",
+      label: "Invoice lines",
+      singular: "Invoice line",
+      purpose: "one priced line on an invoice",
+      title: "description",
+      fields: [
+        { name: "invoice_id", type: "ref", ref: "invoice", label: "Invoice", required: true, core: true },
+        { name: "item_id", type: "ref", ref: "catalogue_item", label: "Item" },
+        { name: "description", type: "text", required: true, core: true },
+        { name: "quantity", type: "number", required: true, core: true },
+        { name: "unit_price", type: "money", required: true, core: true },
+        { name: "tax_rate", type: "percent" },
+        { name: "amount", type: "money", formula: "round(quantity * unit_price, 2)", core: true },
+        { name: "tax_amount", type: "money", formula: "round(amount * tax_rate / 100, 2)" },
+      ],
+    },
+  ],
+  actions: [
+    {
+      name: "issue_invoice",
+      label: "Issue invoice",
+      entity: "invoice",
+      summary: "Issue the invoice to the customer and start its payment clock.",
+      effects: ["outbound", "money"],
+      policy: amountAtOrAbove(50_000, "finance"),
+      measure: { amount: "total" },
+      when: ["draft"],
+      to: "issued",
+      guard: { if: "count(invoice_line) > 0", else: "an invoice needs at least one line" },
+      sets: { issue_date: "=today()", due_date: "=coalesce(due_date, add_days(today(), setting.payment_terms_days))" },
+    },
+    {
+      name: "send_payment_reminder",
+      label: "Send payment reminder",
+      entity: "invoice",
+      summary: "Remind the customer that the balance is due.",
+      effects: ["outbound"],
+      policy: AUTO,
+      when: ["issued", "part_paid", "overdue"],
+    },
+    {
+      name: "void_invoice",
+      label: "Void",
+      entity: "invoice",
+      summary: "Cancel the invoice so nothing is owed on it.",
+      effects: ["money", "destructive"],
+      policy: approve("finance", "voiding an issued invoice changes the books"),
+      when: ["draft", "issued", "overdue"],
+      to: "void",
+      params: [{ name: "reason", type: "text", required: true }],
+      sets: { void_reason: "=param.reason" },
+    },
+    {
+      name: "write_off_balance",
+      label: "Write off balance",
+      entity: "invoice",
+      summary: "Give up on the unpaid balance and close the invoice.",
+      effects: ["money", "destructive"],
+      policy: approve("finance", "writing off gives up money that is owed"),
+      when: ["part_paid", "overdue"],
+      to: "written_off",
+      params: [{ name: "reason", type: "text", required: true }],
+      sets: { void_reason: "=param.reason" },
+    },
+  ],
+  settings: [
+    { name: "payment_terms_days", label: "Payment terms (days)", type: "integer", default: 15, help: "days a customer has to pay an issued invoice" },
+  ],
+});

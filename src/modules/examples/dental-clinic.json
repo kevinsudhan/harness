@@ -1,0 +1,185 @@
+{
+  "id": "dental_clinic",
+  "label": "Dental clinic",
+  "business": { "name": "Smile Dental", "currency": "INR", "currencySymbol": "₹", "locale": "en-IN", "timezone": "Asia/Kolkata" },
+  "modules": [
+    {
+      "id": "contacts",
+      "label": "Patients",
+      "entities": {
+        "contact": {
+          "label": "Patients",
+          "singular": "Patient",
+          "relabel": { "full_name": "Patient name" },
+          "drop": ["account_id", "contact_type"],
+          "add": [
+            { "name": "blood_group", "type": "choice", "options": ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"] },
+            { "name": "allergies", "type": "longtext", "pii": true },
+            { "name": "medical_history", "type": "longtext", "pii": true }
+          ]
+        }
+      }
+    },
+    {
+      "id": "enquiries",
+      "entities": { "enquiry": { "options": { "channel": ["phone", "walk_in", "whatsapp", "website", "referral"] }, "drop": ["listing_id", "budget"] } }
+    },
+    {
+      "id": "pipeline",
+      "label": "Treatment",
+      "entities": {
+        "work_item": {
+          "label": "Treatment courses",
+          "singular": "Treatment course",
+          "relabel": { "title": "Treatment", "owner": "Dentist", "contact_id": "Patient" },
+          "drop": ["value"]
+        }
+      },
+      "lifecycle": {
+        "order": ["consultation", "treatment_plan", "in_treatment", "review", "completed", "discontinued"],
+        "initial": "consultation",
+        "states": {
+          "consultation": { "label": "Consultation", "requirements": ["medical history recorded", "consent to examine"], "next": ["treatment_plan", "discontinued"] },
+          "treatment_plan": { "label": "Treatment plan", "requirements": ["plan explained", "estimate accepted"], "next": ["in_treatment", "discontinued"] },
+          "in_treatment": { "label": "In treatment", "requirements": ["consent on file"], "next": ["review", "discontinued"] },
+          "review": { "label": "Review", "next": ["completed", "in_treatment"] },
+          "completed": { "label": "Completed", "next": [] },
+          "discontinued": { "label": "Discontinued", "next": [] }
+        }
+      },
+      "customActions": [
+        {
+          "name": "record_findings",
+          "label": "Record findings",
+          "summary": "Record what the examination found.",
+          "effects": ["record", "sensitive"],
+          "policy": { "mode": "auto" },
+          "when": ["consultation", "review"],
+          "params": [{ "name": "findings", "type": "longtext", "required": true }]
+        },
+        {
+          "name": "propose_treatment_plan",
+          "label": "Propose plan",
+          "summary": "Propose a course of treatment to the patient.",
+          "effects": ["record"],
+          "policy": { "mode": "approve", "approver": "compliance", "why": "a treatment plan is a clinical decision" },
+          "when": ["consultation"],
+          "to": "treatment_plan"
+        },
+        {
+          "name": "start_treatment",
+          "label": "Start treatment",
+          "summary": "Begin the agreed treatment.",
+          "effects": ["record"],
+          "policy": { "mode": "auto" },
+          "when": ["treatment_plan"],
+          "to": "in_treatment"
+        },
+        {
+          "name": "book_next_visit",
+          "label": "Book next visit",
+          "summary": "Book the patient's next appointment in this course.",
+          "effects": ["record", "outbound"],
+          "policy": { "mode": "auto" },
+          "when": ["treatment_plan", "in_treatment", "review"],
+          "params": [
+            { "name": "starts_at", "type": "datetime", "required": true },
+            { "name": "duration_minutes", "type": "integer", "required": true }
+          ],
+          "guard": { "if": "contact_id != null", "else": "link the patient to this course first" },
+          "creates": {
+            "entity": "appointment",
+            "fields": { "contact_id": "=contact_id", "work_item_id": "=id()", "starts_at": "=param.starts_at", "duration_minutes": "=param.duration_minutes" }
+          }
+        },
+        {
+          "name": "perform_procedure",
+          "label": "Record procedure",
+          "summary": "Record a procedure performed in this course.",
+          "effects": ["record", "sensitive"],
+          "policy": { "mode": "approve", "approver": "compliance", "why": "a procedure is a clinical decision" },
+          "when": ["in_treatment"],
+          "params": [{ "name": "procedure", "type": "text", "required": true }]
+        },
+        {
+          "name": "prescribe",
+          "label": "Prescribe",
+          "summary": "Record a prescription for the patient.",
+          "effects": ["sensitive"],
+          "policy": { "mode": "approve", "approver": "compliance", "why": "prescribing is a clinical decision" },
+          "when": ["in_treatment", "review"],
+          "params": [{ "name": "medication", "type": "text", "required": true }]
+        },
+        {
+          "name": "move_to_review",
+          "label": "Move to review",
+          "summary": "Treatment is done; review how it went.",
+          "effects": ["record"],
+          "policy": { "mode": "auto" },
+          "when": ["in_treatment"],
+          "to": "review"
+        },
+        {
+          "name": "complete_treatment",
+          "label": "Complete",
+          "summary": "Close the course of treatment.",
+          "effects": ["record"],
+          "policy": { "mode": "auto" },
+          "when": ["review"],
+          "to": "completed"
+        },
+        {
+          "name": "discontinue_treatment",
+          "label": "Discontinue",
+          "summary": "Stop the course of treatment before it is finished.",
+          "effects": ["destructive"],
+          "policy": { "mode": "approve", "approver": "compliance", "why": "stopping treatment part-way is a clinical decision" },
+          "when": ["consultation", "treatment_plan", "in_treatment"],
+          "to": "discontinued",
+          "params": [{ "name": "reason", "type": "text", "required": true }]
+        }
+      ]
+    },
+    {
+      "id": "appointments",
+      "entities": {
+        "resource": { "label": "Dentists & chairs", "singular": "Dentist / chair", "options": { "kind": ["person", "chair", "room"] } },
+        "appointment": { "states": { "checked_in": "In the chair" }, "drop": ["asset_id", "location"] }
+      },
+      "settings": { "reminder_hours_before": 24, "default_duration_minutes": 30 }
+    },
+    {
+      "id": "catalogue",
+      "label": "Procedures & fees",
+      "entities": { "catalogue_item": { "label": "Procedures & fees", "singular": "Procedure", "options": { "kind": ["service", "product", "fee"] } } }
+    },
+    {
+      "id": "quotes",
+      "label": "Estimates",
+      "entities": { "quote": { "label": "Estimates", "singular": "Estimate", "drop": ["account_id"] }, "quote_line": { "label": "Estimate lines", "singular": "Estimate line" } },
+      "actions": {
+        "send_quote": { "label": "Send estimate", "policy": { "mode": "threshold", "measure": "discountPct", "limit": 15, "trigger": "above", "approver": "desk" } },
+        "convert_quote_to_invoice": { "label": "Bill this estimate" }
+      }
+    },
+    {
+      "id": "invoicing",
+      "label": "Billing",
+      "actions": { "issue_invoice": { "policy": { "mode": "threshold", "measure": "amount", "limit": 25000, "trigger": "atOrAbove", "approver": "finance" } } },
+      "settings": { "payment_terms_days": 0 }
+    },
+    {
+      "id": "payments",
+      "actions": { "issue_payment_link": { "policy": { "mode": "threshold", "measure": "amount", "limit": 25000, "trigger": "atOrAbove", "approver": "finance" } } }
+    },
+    { "id": "claims", "label": "Insurance claims" },
+    { "id": "consent" },
+    { "id": "messaging", "label": "Patient messages" },
+    { "id": "staff" }
+  ],
+  "primary": "work_item",
+  "vocabulary": ["patient", "dentist", "treatment", "appointment", "chair", "x-ray", "recall", "root canal", "filling"],
+  "openQuestions": [
+    { "question": "The ₹25,000 approval threshold on invoices and payment links was not in the request — confirm the real figure.", "blocks": "behaviour" }
+  ]
+}
